@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine.Networking;
+using UnityEditor;
 
 namespace Core
 {
@@ -31,6 +32,7 @@ namespace Core
         }
 
         //Core behaviour class for player objects
+        [RequireComponent(typeof(Rigidbody))]
         public class PlayerBehaviour : NetworkBehaviour
         {
             public PlayerData Data;
@@ -38,20 +40,43 @@ namespace Core
             public float Health;
             public int credits = 0;
 
-            private vcUnetCommon ucommon;
+            private bool enableLocalControl;
+
+            public float walkSpeed = 5.0f;
+            public float runSpeed = 10.0f;
+
+            [System.Serializable]
+            public class JumpSystem
+            {
+                public float Fuel = 100.0f;
+                public float Recover = 0.1f;
+                public float Usage = 0.5f;
+                public float Force = 25.0f;
+                public AudioSource[] jetSounds;
+                public AnimationCurve jetPitch = new AnimationCurve(new Keyframe(0, .01f), new Keyframe(60, 1), new Keyframe(100, 1));
+            }
+
+            public JumpSystem Jump;
+
+            Rigidbody rbody;
+            float translation;
+            float strafe;
+
+            public bool fireFirst;
+            public bool fireLast;
+            public bool fireCont;
 
             void Start()
             {
                 if (isLocalPlayer)
                 {
-                    
                     foreach(Camera c in GetComponentsInChildren<Camera>())
                     {
                         c.enabled = true;
                     }
                     this.GetComponentInChildren<AudioListener>().enabled = true;
                     this.GetComponentInChildren<camMouseLook>().enabled = true;
-                    this.GetComponent<characterController>().enabled = true;
+                    this.GetComponent<PlayerInterface>().enabled = true;
                     //this.GetComponent<FirstPersonController>().enabled = true;
                     GameObject sc = GameObject.FindGameObjectWithTag("SkyController");
                     if (sc)
@@ -68,10 +93,88 @@ namespace Core
                 {
 
                 }
-                
-                print(this.GetComponent<NetworkIdentity>().netId);
 
+                rbody = this.GetComponent<Rigidbody>();
+            }
 
+            private void FixedUpdate()
+            {
+                if (isLocalPlayer) {
+                    if (Input.GetButton("SPRINT"))
+                    {
+                        translation = Input.GetAxis("WALK") * runSpeed * Time.deltaTime;
+                        strafe = Input.GetAxis("STRAFE") * runSpeed * Time.deltaTime;
+                    }
+                    else
+                    {
+                        translation = Input.GetAxis("WALK") * walkSpeed * Time.deltaTime;
+                        strafe = Input.GetAxis("STRAFE") * walkSpeed * Time.deltaTime;
+                    }
+
+                    transform.Translate(strafe, 0, translation);
+
+                    if (Input.GetKeyDown(KeyCode.Escape))
+                        Cursor.lockState = CursorLockMode.None;
+
+                    foreach (AudioSource a in Jump.jetSounds)
+                    {
+                        a.pitch = Jump.jetPitch.Evaluate(Jump.Fuel);
+                    }
+
+                    if (Jump.Fuel > 0)
+                    {
+                        if (Input.GetButton("JUMP"))
+                        {
+                            rbody.AddForce((Vector3.up * (Jump.Force * ((Jump.Fuel / 100) + .25f))));
+                            Jump.Fuel -= Jump.Usage;
+                            foreach (AudioSource a in Jump.jetSounds)
+                            {
+                                a.mute = false;
+                            }
+                        }
+                        else
+                        {
+                            foreach (AudioSource a in Jump.jetSounds)
+                            {
+                                a.mute = true;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        foreach (AudioSource a in Jump.jetSounds)
+                        {
+                            a.mute = true;
+                        }
+                    }
+
+                    if (Jump.Fuel < 100)
+                    {
+                        if (!Input.GetButton("JUMP"))
+                        {
+                            Jump.Fuel += Jump.Recover;
+                        }
+                    }
+
+                    if (Jump.Fuel < 0)
+                    {
+                        Jump.Fuel = 0.0f;
+                    }
+
+                    if (Jump.Fuel > 100)
+                    {
+                        Jump.Fuel = 100.0f;
+                    }
+
+                    //Core boolean for controlling weapons
+                    fireFirst = Input.GetButtonDown("MOUSE_L");
+                    fireLast = Input.GetButtonUp("MOUSE_L");
+                    fireCont = Input.GetButton("MOUSE_L");
+                }
+                else
+                {
+                    return;
+                }
             }
 
             void OnTriggerStay(Collider other)
@@ -184,7 +287,7 @@ namespace Core
 
             void OnGUI()
             {
-                var Jump = this.GetComponent<characterController>().Jump;
+                var Jump = this.GetComponent<Player>().Jump;
                 var Health = this.GetComponent<Player>().Health;
 
                 GUI.Label(new Rect(5, Screen.height - 50, 100, 50), "Health:" + Health.ToString("n2"));
@@ -207,6 +310,20 @@ namespace Core
                     GUILayout.EndArea();
                 }
             }
+        }
+    }
+
+    public class vcGeneration : NetworkBehaviour
+    {
+        [CustomEditor(typeof(OreDistributionEditor))]
+        public class OreDistributionEditor : Editor
+        {
+            
+        }
+
+        public void FindOreDistributionPoints()
+        {
+            
         }
     }
 }
